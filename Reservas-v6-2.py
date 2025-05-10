@@ -1,12 +1,14 @@
 import os
 import json
+import firebase_admin
 from datetime import datetime, timedelta
+from firebase_admin import credentials, firestore
 
 # Configuración
 SALAS = ["Sala Piso 4", "Sala Piso 5"]
 HORAS = ["08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00"]
 DIAS_SEMANA = ["Lu", "Ma", "Mi", "Ju", "Vi"]
-ARCHIVO_DATOS = "reservas6.json"
+# ARCHIVO_DATOS = "reservas6.json"
 
 # Caracteres ASCII para la interfaz
 BORDE_H = "═"
@@ -27,24 +29,70 @@ COLOR_ERROR = "\033[1;31m"
 COLOR_EXITO = "\033[1;32m"
 COLOR_RESET = "\033[0m"
 
-# Cargar datos
+# Configuración inicial (solo una vez en tu programa)
+def inicializar_firebase():
+    if not firebase_admin._apps:
+        cred = credentials.Certificate("salareunionbar-firebase-adminsdk-fbsvc-f99134b887.json")  # Ruta a tu archivo JSON
+        firebase_admin.initialize_app(cred)
+    return firestore.client()
+
+# Cargar todas las reservas desde Firestore
 def cargar_datos():
-    try:  # Bloque try correctamente colocado
-        if os.path.exists(ARCHIVO_DATOS):
-            with open(ARCHIVO_DATOS, 'r') as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    return data
-    except (json.JSONDecodeError, AttributeError):  # Coincide con el try
-        print(f"{COLOR_ERROR}Error leyendo el archivo. Se creará uno nuevo.{COLOR_RESET}")
-    return {sala: {} for sala in SALAS}  # Estructura por defecto
+    db = inicializar_firebase()  # Usa la función de conexión a Firestore
+    reservas = {sala: {} for sala in SALAS}  # Estructura inicial
+    docs = db.collection("reservas").stream()
+    for doc in docs:
+        data = doc.to_dict()
+        sala = data["sala"]
+        fecha = data["fecha"]
+        hora = data["hora"]
+        usuario = data["usuario"]
+        if sala not in reservas:
+            reservas[sala] = {}
+        if fecha not in reservas[sala]:
+            reservas[sala][fecha] = {}
+        reservas[sala][fecha][hora] = usuario
+    return reservas
     
-# Guardar datos
+   # Obtener todas las reservas desde Firestore
+    docs = db.collection("reservas").stream()
+    for doc in docs:
+        data = doc.to_dict()
+        sala = data["sala"]
+        fecha = data["fecha"]
+        hora = data["hora"]
+        usuario = data["usuario"]
+        
+        if sala not in reservas:
+            reservas[sala] = {}
+        if fecha not in reservas[sala]:
+            reservas[sala][fecha] = {}
+        reservas[sala][fecha][hora] = usuario
+    
+    return reservas    
+    
+# Guardar una nueva reserva en Firestore
 def guardar_datos(reservas):
-    if isinstance(reservas, dict):  # Solo guardar si es diccionario
-        with open(ARCHIVO_DATOS, 'w') as f:
-            json.dump(reservas, f, indent=2)  # indent=2 para formato legible
-            
+    db = inicializar_firebase()
+    # Limpiar todas las reservas existentes (opcional, pero útil para evitar duplicados)
+    batch = db.batch()    
+    # Primero limpia todas las reservas existentes (opcional, depende de tu lógica)
+    docs = db.collection("reservas").stream()
+    for doc in docs:
+        batch.delete(doc.reference)
+    batch.commit()
+    
+    # Guardar las nuevas reservas
+    for sala, fechas in reservas.items():
+        for fecha, horas in fechas.items():
+            for hora, usuario in horas.items():
+                db.collection("reservas").add({
+                    "sala": sala,
+                    "fecha": fecha,
+                    "hora": hora,
+                    "usuario": usuario
+                })
+ 
 # Limpiar pantalla
 def limpiar_pantalla():
     os.system('cls' if os.name == 'nt' else 'clear')
